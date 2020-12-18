@@ -1,0 +1,75 @@
+name: Build and Release
+
+on:
+  repository_dispatch:
+    types: [Bump*]
+  workflow_dispatch:
+
+jobs:
+  # cross compile for some other platforms, like arm, mips, etc.
+  cross-compile:
+    runs-on: ubuntu-latest
+    container: "alpine:latest"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # cross toolchain downloads from: https://musl.cc/
+          # you need to find the name ${cross_host}-cross.tgz
+          # openssl_compiler choose from openssl source directory `./Configure LIST`
+          # qt_device choose from https://github.com/qt/qtbase/tree/dev/mkspecs/devices/
+          # qt_xplatform choose from https://github.com/qt/qtbase/tree/dev/mkspecs/
+          - cross_host: arm-linux-musleabi
+            openssl_compiler: linux-armv4
+            qt_device: linux-arm-generic-g++
+          - cross_host: arm-linux-musleabihf
+            openssl_compiler: linux-generic32
+            qt_device: linux-arm-generic-g++
+          - cross_host: aarch64-linux-musl
+            openssl_compiler: linux-aarch64
+            qt_device: linux-arm-generic-g++
+          - cross_host: mips-linux-musl
+            openssl_compiler: linux-mips32
+            qt_device: linux-generic-g++
+          - cross_host: mipsel-linux-musl
+            openssl_compiler: linux-mips32
+            qt_device: linux-generic-g++
+          - cross_host: mips64-linux-musl
+            openssl_compiler: linux64-mips64
+            qt_device: linux-generic-g++
+          - cross_host: x86_64-linux-musl
+            openssl_compiler: linux-x86_64
+            qt_device: linux-generic-g++
+
+    steps:
+
+      - name: Get Version Number
+        id: getVersion
+        run: |
+          echo "::set-output name=releaseTag::$(wget -O- https://api.github.com/repos/qbittorrent/qBittorrent/tags | grep 'name' | head -1 | cut -d'"' -f4)"
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          repository: 'qbittorrent/qBittorrent'
+          path: 'qbittorrent'
+          ref: ${{ steps.getVersion.outputs.releaseTag }}
+
+      - name: cross compile nox-static
+        env:
+          CROSS_HOST: "${{ matrix.cross_host }}"
+          OPENSSL_COMPILER: "${{ matrix.openssl_compiler }}"
+          QT_DEVICE: "${{ matrix.qt_device }}"
+          QT_XPLATFORM: "${{matrix.qt_xplatform}}"
+        run: ./cross_build.sh
+
+      - name: Upload to Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: qbittorrent/qbittorrent-nox_${{ matrix.cross_host }}_static.zip
+          tag: ${{ steps.getVersion.outputs.releaseTag }}
+          overwrite: true
